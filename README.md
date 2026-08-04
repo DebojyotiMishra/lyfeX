@@ -63,11 +63,22 @@ At a high level:
 - Performance overlay for frame-time monitoring.
 - Smoke-test mode that renders a few frames and exits.
 
+### UI and visual design
+
+- Apple-inspired dark theme: translucent "glass" panels, rounded controls, a
+  systemBlue accent, and rounded corners on the simulation's own wall geometry
+  (not just the UI chrome).
+- Geist and Geist Mono are embedded directly in the binary (`demo/assets/fonts`,
+  SIL Open Font License) and used for all HUD text.
+- All styling is centralized in `demo/src/theme.rs` (fonts, colors, corner
+  radii) so panels stay visually consistent as the UI grows.
+
 ## Workspace Layout
 
 - `fluidsim`: core simulation crate.
   - GPU transport, reaction, leak, enzyme, and thermal compute passes.
-  - Scenario builders and coarse semantic snapshot generation.
+  - Scenario builders and coarse semantic snapshot generation, including
+    rounded-corner solid geometry (`solid.rs::fill_rounded_hollow_rect`).
   - Inspection, material, and species registries.
 - `kinetics`: low-frequency semantic evaluation crate.
   - Snapshot/update types.
@@ -76,7 +87,10 @@ At a high level:
 - `lean`: Lean 4 rule engine.
   - Owns the semantic rule definitions.
 - `renderer`: Vulkan rendering and egui overlay crate.
-- `demo`: interactive application and scenario runner.
+  - `context.rs` creates the Vulkan instance/device/swapchain; surface
+    creation is implemented for Linux (Xlib/Xcb/Wayland) and macOS
+    (`VK_EXT_metal_surface` via MoltenVK).
+- `demo`: interactive application, scenario runner, and UI/theme.
 
 ## Simulation Flow
 
@@ -108,7 +122,39 @@ The demo currently ships with six scenarios:
 - Rust 2024 edition toolchain.
 - Vulkan 1.2-capable GPU and working Vulkan driver.
 - Lean 4 and Lake.
-- Linux desktop environment with X11 or Wayland (other platforms may work but are untested).
+- Linux (X11 or Wayland) or macOS. Linux is the primary target; macOS is
+  supported via MoltenVK but needs the extra setup below.
+
+#### macOS setup
+
+Vulkan isn't native to macOS, so install the loader and MoltenVK (the
+Vulkan-over-Metal translation layer) and shaderc via Homebrew:
+
+```bash
+brew install vulkan-loader molten-vk shaderc
+```
+
+`shaderc-sys` only auto-detects native libraries at `/usr/local/lib`, not
+Homebrew's `/opt/homebrew/lib` on Apple Silicon, so point it there explicitly
+when building:
+
+```bash
+export SHADERC_LIB_DIR=/opt/homebrew/lib
+```
+
+At runtime, binaries need `/opt/homebrew/lib` on the dynamic linker's search
+path to find the Vulkan loader; `.cargo/config.toml` bakes that in as an
+rpath at link time, so no environment variables are needed to run the demo,
+probes, or `cargo test`. (An earlier version of this setup used
+`DYLD_LIBRARY_PATH` — don't reach for that instead: macOS SIP strips
+`DYLD_*` variables when exec'ing SIP-restricted binaries, including `cargo`
+itself, so they aren't reliably forwarded to spawned processes like
+`cargo test`'s test binaries.) MoltenVK's ICD manifest is auto-discovered by
+the Vulkan loader from its default search path, so `VK_ICD_FILENAMES` isn't
+needed either.
+
+Rust (`rustup`) and Lean (`elan`) toolchains aren't macOS system tools either;
+install them with `brew install rustup elan-init` if not already present.
 
 ### Build the Lean rule engine
 
@@ -133,6 +179,21 @@ If you build the Lean binary somewhere else:
 export LYFE_LEAN_BINARY=/absolute/path/to/lyfe-rules
 ```
 
+#### macOS note
+
+Lean 4.16.0's bundled toolchain links with LLVM/`ld64.lld` 15.0.1, which predates
+macOS's `__DATA_CONST` read-only segment enforcement; the resulting binary is
+refused by dyld (`__DATA_CONST segment missing SG_READ_ONLY flag`, `SIGABRT`).
+Build with the system compiler/linker instead, and point `LIBRARY_PATH` at the
+toolchain's bundled `libgmp`/`libuv` (Lean's internal linker flags for these are
+dropped when `LEAN_CC` is overridden):
+
+```bash
+export LEAN_CC=/usr/bin/cc
+export LIBRARY_PATH="$(dirname "$(dirname "$(elan which lean)")")/lib:$LIBRARY_PATH"
+cd lean && lake build && cd ..
+```
+
 ### Build the Rust workspace
 
 ```bash
@@ -140,6 +201,10 @@ cargo build --release
 ```
 
 ## Running The Demo
+
+No special environment variables are needed on macOS at this point (see
+[macOS setup](#macos-setup)) beyond `LYFE_LEAN_BINARY`, and only if the Lean
+binary isn't in one of the default lookup locations.
 
 Show CLI help:
 
@@ -191,7 +256,7 @@ General controls:
 
 Leak editor controls:
 
-- Use the egui `CREATE` panel to add leak channels.
+- Use the "Create" panel to add leak channels.
 - Left click selects a leak channel or confirms placement/transform.
 - `R`: rotate a leak channel by 45 degrees while placing or transforming it.
 - With a leak channel selected, `T` enters transform mode.
@@ -211,12 +276,60 @@ Run them with:
 cargo test -p fluidsim
 ```
 
+## Recent Changes
+
+- **Fixed:** the `leak` scenario crashed on startup with `ERROR_OUT_OF_POOL_MEMORY`. Its
+  descriptor pool (`fluidsim/src/gpu/pipelines.rs::init_leak_pipeline`) reserved 4
+  `STORAGE_BUFFER` descriptors but allocated 2 descriptor sets × 3 bindings each (6
+  needed) — undersized by construction, so it only ever surfaced when a scenario
+  actually seeded leak channels at startup (only `leak` does).
+- **Fixed:** `--smoke-test` could hang forever on any scenario running below 5 FPS.
+  The exit condition (`frame_count >= 5`) shared its counter with the FPS-averaging
+  logic, which resets that same counter to 0 every second — so a scenario slower
+  than 5 FPS (like `leak`, whose tuned diffusion/time-scale values need roughly
+  1.8x the substeps of other scenarios) could never accumulate 5 frames before the
+  reset zeroed it out again. Smoke-test frame counting now uses its own dedicated
+  counter (`demo/src/app.rs::smoke_test_frame_count`), independent of the FPS window.
+- **Removed:** a leftover debug border in the visualization shader
+  (`renderer/shaders/visualization.frag`) that pulsed through the color spectrum
+  around the full simulation viewport on every frame, explicitly marked `// DEBUG`
+  in the source. It was never meant to ship.
+- **Fixed:** `cargo test -p fluidsim` couldn't run on macOS at all — its probe
+  binaries build a headless Vulkan context (`fluidsim/src/gpu/setup.rs`) that,
+  unlike the windowed renderer path, never requested `VK_KHR_portability_enumeration`,
+  so instance creation failed with `VK_ERROR_INCOMPATIBLE_DRIVER` wherever MoltenVK
+  is the only ICD available. Fixed the same way as the windowed path: request
+  portability enumeration on the instance and enable `VK_KHR_portability_subset`
+  on the device where supported.
+- **Fixed:** even after the above, `cargo test` still couldn't find `libvulkan.dylib`
+  via `DYLD_LIBRARY_PATH`, because macOS SIP strips `DYLD_*` variables when exec'ing
+  SIP-restricted binaries — `cargo` itself is one, so the variable set in the shell
+  never reached `cargo test`'s spawned test binaries. Replaced the env-var approach
+  with an rpath baked into every binary at link time (`.cargo/config.toml`), which
+  isn't affected by SIP's `DYLD_*` stripping since it's embedded in the Mach-O file.
+  This also means `DYLD_LIBRARY_PATH` is no longer needed to run the demo directly,
+  and `VK_ICD_FILENAMES` turned out to be unnecessary too — Homebrew's Vulkan loader
+  auto-discovers MoltenVK's ICD manifest from its own default search path.
+- **Fixed:** the rounded box geometry (see below) initially broke the `leak_probe`
+  regression test — the probe's leak channels sit close enough to the box corners
+  (within the rounding radius, at the grid resolution the test uses) that rounding
+  exposed previously-walled-off fluid cells right where they attach, disturbing
+  local charge neutrality just past the test's tolerance. Tuned the corner radius
+  formula (`fluidsim/src/scenario/helpers.rs::add_titanium_hollow_box`) down so it
+  stays clear of channel attachment points at small grid sizes while still scaling
+  up visibly on the demo's full-resolution grids.
+- Added macOS support: Vulkan surface creation via `VK_EXT_metal_surface`/MoltenVK,
+  build/runtime setup documented in [macOS setup](#macos-setup).
+- Added the Apple-inspired UI theme (Geist/Geist Mono fonts, rounded panels and
+  controls, rounded simulation-box geometry) described in
+  [UI and visual design](#ui-and-visual-design).
+
 ## Notes
 
 - The Lean layer is the source of truth for active semantic rules. Adding new rule families is intended to happen in Lean first, with Rust remaining mostly rule-agnostic.
 - The simulation is intentionally split into a fast fine-grid transport loop and a slower semantic reasoning loop.
-- The demo is Linux-focused today and assumes working Vulkan presentation support.
-- Capturing with OBS might not work properly due to use of low-level Vulkan presentation.
+- Linux is the best-tested platform and assumes working native Vulkan presentation support; macOS works through MoltenVK (see [macOS setup](#macos-setup)) but is less battle-tested.
+- Capturing with OBS might not work properly on Linux due to use of low-level Vulkan presentation.
 - Chemical species are currently represented with molecular formulae. Plans are in motion to represent species as full structural formulae.
 
 ## Contributing
@@ -226,3 +339,7 @@ Contributions are welcome. Feel free to open an issue to begin discussion on new
 ## License
 
 All of the code in this repository is released under Apache 2.0 / MIT dual-license.
+
+The embedded Geist and Geist Mono fonts (`demo/assets/fonts`) are © The Geist
+Project Authors / Vercel and licensed separately under the SIL Open Font
+License 1.1 (`demo/assets/fonts/LICENSE.txt`).

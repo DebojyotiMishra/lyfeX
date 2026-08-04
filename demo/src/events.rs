@@ -324,10 +324,13 @@ impl ApplicationHandler for DemoApp {
                     self.fps_update_time = frame_start;
                 }
 
-                if self.smoke_test && self.frame_count >= 5 {
-                    log::info!("Smoke test: 5 frames rendered, exiting");
-                    event_loop.exit();
-                    return;
+                if self.smoke_test {
+                    self.smoke_test_frame_count += 1;
+                    if self.smoke_test_frame_count >= 5 {
+                        log::info!("Smoke test: 5 frames rendered, exiting");
+                        event_loop.exit();
+                        return;
+                    }
                 }
 
                 if let Some(window) = &self.window {

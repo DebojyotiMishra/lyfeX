@@ -1,19 +1,15 @@
 use crate::app::DemoApp;
 use crate::app_types::{EntityKind, PerformanceSample, PerformanceSummary, SelectedEntity};
+use crate::theme;
 
 impl DemoApp {
     pub(crate) fn draw_editor_ui(&mut self, ctx: &egui::Context) {
-        use egui::{Align2, Color32, Frame, Margin, RichText, Stroke};
+        use egui::{Align2, Color32, Margin, RichText};
 
         egui::Area::new("simulation_controls".into())
             .anchor(Align2::LEFT_TOP, egui::vec2(12.0, 12.0))
             .show(ctx, |ui| {
-                Frame::none()
-                    .fill(Color32::from_rgba_unmultiplied(8, 12, 18, 220))
-                    .stroke(Stroke::new(
-                        1.0,
-                        Color32::from_rgba_unmultiplied(255, 255, 255, 32),
-                    ))
+                theme::panel_frame()
                     .inner_margin(Margin::same(8.0))
                     .show(ui, |ui| {
                         let paused = self
@@ -23,7 +19,7 @@ impl DemoApp {
                             .unwrap_or(false);
 
                         if ui
-                            .button(RichText::new(if paused { "PLAY" } else { "PAUSE" }).strong())
+                            .button(if paused { "Play" } else { "Pause" })
                             .clicked()
                             && let Some(sim) = self.simulation.as_mut()
                         {
@@ -34,13 +30,13 @@ impl DemoApp {
                             );
                         }
 
-                        if ui.button(RichText::new("RESTART").strong()).clicked()
+                        if ui.button("Restart").clicked()
                             && let Err(error) = self.reset_simulation()
                         {
                             log::error!("Failed to restart simulation: {}", error);
                         }
 
-                        if ui.button(RichText::new("CREATE").strong()).clicked() {
+                        if ui.button("Create").clicked() {
                             self.create_menu_open = true;
                         }
                     });
@@ -67,15 +63,10 @@ impl DemoApp {
                     egui::vec2(12.0, if self.create_menu_open { 170.0 } else { 56.0 }),
                 )
                 .show(ctx, |ui| {
-                    Frame::none()
-                        .fill(Color32::from_rgba_unmultiplied(8, 12, 18, 215))
-                        .stroke(Stroke::new(
-                            1.0,
-                            Color32::from_rgba_unmultiplied(255, 255, 255, 28),
-                        ))
+                    theme::panel_frame()
                         .inner_margin(Margin::same(10.0))
                         .show(ui, |ui| {
-                            ui.label(RichText::new("Placing Leak Channel").strong());
+                            ui.label(RichText::new("Placing Leak Channel").font(theme::medium_font(14.0)));
                             ui.label(format!("Species: {}", placement.leak_channel.species_name));
                             ui.label(format!("Rate: {:.2}", placement.leak_channel.rate));
                             ui.label(format!(
@@ -94,15 +85,10 @@ impl DemoApp {
                     egui::vec2(12.0, if self.create_menu_open { 170.0 } else { 56.0 }),
                 )
                 .show(ctx, |ui| {
-                    Frame::none()
-                        .fill(Color32::from_rgba_unmultiplied(8, 12, 18, 215))
-                        .stroke(Stroke::new(
-                            1.0,
-                            Color32::from_rgba_unmultiplied(255, 255, 255, 28),
-                        ))
+                    theme::panel_frame()
                         .inner_margin(Margin::same(10.0))
                         .show(ui, |ui| {
-                            ui.label(RichText::new("Transforming Leak Channel").strong());
+                            ui.label(RichText::new("Transforming Leak Channel").font(theme::medium_font(14.0)));
                             ui.label(format!("Species: {}", transform.leak_channel.species_name));
                             ui.label(format!("Rate: {:.2}", transform.leak_channel.rate));
                             ui.label(format!(
@@ -125,16 +111,11 @@ impl DemoApp {
             egui::Area::new("entity_inspector".into())
                 .anchor(Align2::LEFT_CENTER, egui::vec2(16.0, 0.0))
                 .show(ctx, |ui| {
-                    Frame::none()
-                        .fill(Color32::from_rgba_unmultiplied(8, 12, 18, 230))
-                        .stroke(Stroke::new(
-                            1.0,
-                            Color32::from_rgba_unmultiplied(255, 255, 255, 32),
-                        ))
+                    theme::panel_frame()
                         .inner_margin(Margin::same(12.0))
                         .show(ui, |ui| {
                             ui.set_min_width(300.0);
-                            ui.label(RichText::new("Leak Channel").strong().size(18.0));
+                            ui.label(RichText::new("Leak Channel").font(theme::heading_font(18.0)));
                             ui.small(format!("Entity {}", index + 1));
                             ui.add_space(8.0);
 
@@ -236,7 +217,7 @@ impl DemoApp {
         summary: PerformanceSummary,
         samples: &[PerformanceSample],
     ) {
-        use egui::{Align2, Color32, Frame, Margin, RichText, Sense, Stroke, Vec2};
+        use egui::{Align2, Color32, Margin, RichText, Sense, Stroke, Vec2};
 
         if !performance_overlay {
             return;
@@ -296,19 +277,13 @@ impl DemoApp {
         egui::Area::new("performance_stats".into())
             .anchor(Align2::RIGHT_TOP, egui::vec2(-16.0, 16.0))
             .show(ctx, |ui: &mut egui::Ui| {
-                Frame::none()
-                    .fill(Color32::from_rgba_unmultiplied(8, 12, 18, 220))
-                    .stroke(Stroke::new(
-                        1.0,
-                        Color32::from_rgba_unmultiplied(255, 255, 255, 24),
-                    ))
+                theme::panel_frame()
                     .inner_margin(Margin::same(12.0))
                     .show(ui, |ui: &mut egui::Ui| {
                         ui.set_min_width(240.0);
                         ui.label(
                             RichText::new("Performance")
-                                .strong()
-                                .size(18.0)
+                                .font(theme::heading_font(18.0))
                                 .color(Color32::WHITE),
                         );
                         ui.add_space(6.0);
@@ -328,12 +303,7 @@ impl DemoApp {
                 let available_width = (ctx.screen_rect().width() - 32.0).max(480.0);
                 let graph_size = Vec2::new(available_width, 210.0);
 
-                Frame::none()
-                    .fill(Color32::from_rgba_unmultiplied(7, 10, 15, 210))
-                    .stroke(Stroke::new(
-                        1.0,
-                        Color32::from_rgba_unmultiplied(255, 255, 255, 24),
-                    ))
+                theme::panel_frame()
                     .inner_margin(Margin::same(12.0))
                     .show(ui, |ui: &mut egui::Ui| {
                         ui.horizontal_wrapped(|ui: &mut egui::Ui| {
@@ -349,12 +319,12 @@ impl DemoApp {
                         let painter = ui.painter_at(rect);
                         painter.rect_filled(
                             rect,
-                            10.0,
+                            theme::RADIUS_CONTROL,
                             Color32::from_rgba_unmultiplied(15, 21, 30, 200),
                         );
                         painter.rect_stroke(
                             rect,
-                            10.0,
+                            theme::RADIUS_CONTROL,
                             Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 20)),
                         );
 

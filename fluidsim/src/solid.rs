@@ -263,4 +263,50 @@ impl SolidGeometry {
             material,
         );
     }
+
+    /// Create a hollow rectangle (outline only) with rounded corners.
+    ///
+    /// `radius` is the corner radius of the outer edge, in cells; the inner
+    /// edge is rounded by `radius - thickness` so the wall stays roughly
+    /// constant thickness all the way around.
+    pub fn fill_rounded_hollow_rect(
+        &mut self,
+        rect: SolidRect,
+        thickness: u32,
+        radius: u32,
+        width: u32,
+        material: MaterialId,
+    ) {
+        let half_w = (rect.x1 - rect.x0) as f32 / 2.0;
+        let half_h = (rect.y1 - rect.y0) as f32 / 2.0;
+        let outer_r = (radius as f32).min(half_w).min(half_h);
+        let inner_half_w = (half_w - thickness as f32).max(0.0);
+        let inner_half_h = (half_h - thickness as f32).max(0.0);
+        let inner_r = (outer_r - thickness as f32).max(0.0);
+
+        let cx = rect.x0 as f32 + half_w;
+        let cy = rect.y0 as f32 + half_h;
+
+        for y in rect.y0..rect.y1 {
+            for x in rect.x0..rect.x1 {
+                let px = x as f32 + 0.5 - cx;
+                let py = y as f32 + 0.5 - cy;
+                let outer_dist = rounded_box_sdf(px, py, half_w, half_h, outer_r);
+                let inner_dist = rounded_box_sdf(px, py, inner_half_w, inner_half_h, inner_r);
+                if outer_dist <= 0.0 && inner_dist > 0.0 {
+                    let index = (y * width + x) as usize;
+                    self.set_solid(index, material);
+                }
+            }
+        }
+    }
+}
+
+/// Signed distance from `(px, py)` (relative to the box center) to a
+/// rounded rectangle with half-extents `(half_w, half_h)` and corner radius `r`.
+/// Negative inside, positive outside.
+fn rounded_box_sdf(px: f32, py: f32, half_w: f32, half_h: f32, r: f32) -> f32 {
+    let qx = px.abs() - half_w + r;
+    let qy = py.abs() - half_h + r;
+    qx.max(0.0).hypot(qy.max(0.0)) + qx.max(qy).min(0.0) - r
 }

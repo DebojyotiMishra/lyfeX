@@ -115,12 +115,21 @@ impl RenderContext {
             RawDisplayHandle::Xcb(_) => {
                 extensions.push(ash::khr::xcb_surface::NAME.as_ptr());
             }
+            #[cfg(target_os = "macos")]
+            RawDisplayHandle::AppKit(_) => {
+                extensions.push(ash::ext::metal_surface::NAME.as_ptr());
+                extensions.push(vk::KHR_PORTABILITY_ENUMERATION_NAME.as_ptr());
+            }
             _ => bail!("Unsupported display handle type"),
         }
 
-        let instance_info = vk::InstanceCreateInfo::default()
+        let mut instance_info = vk::InstanceCreateInfo::default()
             .application_info(&app_info)
             .enabled_extension_names(&extensions);
+        #[cfg(target_os = "macos")]
+        if matches!(raw_display_handle, RawDisplayHandle::AppKit(_)) {
+            instance_info = instance_info.flags(vk::InstanceCreateFlags::ENUMERATE_PORTABILITY_KHR);
+        }
 
         let instance = unsafe { entry.create_instance(&instance_info, None)? };
         let surface_loader = ash::khr::surface::Instance::new(&entry, &instance);
@@ -174,7 +183,18 @@ impl RenderContext {
             .queue_family_index(graphics_queue_family)
             .queue_priorities(&queue_priority);
 
-        let device_extensions = [ash::khr::swapchain::NAME.as_ptr()];
+        let mut device_extensions = vec![ash::khr::swapchain::NAME.as_ptr()];
+        let available_device_extensions = unsafe {
+            instance
+                .enumerate_device_extension_properties(physical_device)
+                .unwrap_or_default()
+        };
+        if available_device_extensions.iter().any(|ext| {
+            let name = unsafe { CStr::from_ptr(ext.extension_name.as_ptr()) };
+            name == vk::KHR_PORTABILITY_SUBSET_NAME
+        }) {
+            device_extensions.push(vk::KHR_PORTABILITY_SUBSET_NAME.as_ptr());
+        }
 
         let device_info = vk::DeviceCreateInfo::default()
             .queue_create_infos(std::slice::from_ref(&queue_info))
@@ -690,6 +710,14 @@ fn create_surface(
                 .connection(display.connection.unwrap().as_ptr())
                 .window(window.window.get());
             Ok(unsafe { loader.create_xcb_surface(&info, None)? })
+        }
+        #[cfg(target_os = "macos")]
+        (RawDisplayHandle::AppKit(_), RawWindowHandle::AppKit(window)) => {
+            let layer = unsafe { raw_window_metal::Layer::from_ns_view(window.ns_view) };
+            let loader = ash::ext::metal_surface::Instance::new(entry, instance);
+            let info =
+                vk::MetalSurfaceCreateInfoEXT::default().layer(layer.as_ptr().as_ptr() as *const _);
+            Ok(unsafe { loader.create_metal_surface(&info, None)? })
         }
         _ => bail!("Unsupported platform for Vulkan surface creation"),
     }

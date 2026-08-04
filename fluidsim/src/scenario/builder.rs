@@ -91,6 +91,27 @@ impl ScenarioBuilder {
         self
     }
 
+    /// Fill a hollow rectangle with solid material, with rounded corners.
+    pub fn fill_rounded_hollow_rect(
+        mut self,
+        x0: u32,
+        y0: u32,
+        x1: u32,
+        y1: u32,
+        thickness: u32,
+        radius: u32,
+        material: MaterialId,
+    ) -> Self {
+        self.solid_geometry.fill_rounded_hollow_rect(
+            SolidRect { x0, y0, x1, y1 },
+            thickness,
+            radius,
+            self.grid.width,
+            material,
+        );
+        self
+    }
+
     /// Set concentration for a specific cell.
     pub fn set_concentration(
         mut self,

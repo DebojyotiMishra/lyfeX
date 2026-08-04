@@ -9,6 +9,7 @@ mod interaction;
 mod lifecycle;
 mod overlays;
 mod rendering;
+mod theme;
 mod tooltip;
 mod ui;
 

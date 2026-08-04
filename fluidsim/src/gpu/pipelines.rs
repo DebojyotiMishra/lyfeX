@@ -907,7 +907,7 @@ impl GpuSimulation {
 
         let pool_sizes = [vk::DescriptorPoolSize::default()
             .ty(vk::DescriptorType::STORAGE_BUFFER)
-            .descriptor_count(4)];
+            .descriptor_count(6)];
         let pool_info = vk::DescriptorPoolCreateInfo::default()
             .max_sets(2)
             .pool_sizes(&pool_sizes);

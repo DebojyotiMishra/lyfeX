@@ -49,12 +49,15 @@ pub(super) fn add_titanium_hollow_box(
     bounds: CentralBoxBounds,
 ) -> ScenarioBuilder {
     let (builder, titanium) = builder.register_material("titanium", [0.6, 0.6, 0.65, 1.0]);
-    builder.fill_hollow_rect(
+    let outer_size = bounds.outer_x1 - bounds.outer_x0;
+    let radius = (outer_size / 16).max(bounds.wall_thickness);
+    builder.fill_rounded_hollow_rect(
         bounds.outer_x0,
         bounds.outer_y0,
         bounds.outer_x1,
         bounds.outer_y1,
         bounds.wall_thickness,
+        radius,
         titanium,
     )
 }

@@ -1,6 +1,7 @@
 use crate::app::{DETAIL_PANEL_WIDTH, DemoApp};
 use crate::app_types::{LeakChannelOverlay, SelectedEntity};
 use crate::colors::leak_channel_color;
+use crate::theme;
 
 impl DemoApp {
     pub(crate) fn draw_hovered_coarse_outline(ctx: &egui::Context, rect: egui::Rect) {
@@ -221,16 +222,13 @@ impl DemoApp {
                 .order(egui::Order::Tooltip)
                 .anchor(probe.slot.anchor(), probe.slot.offset())
                 .show(ctx, |ui| {
-                    let response = egui::Frame::none()
-                        .fill(egui::Color32::from_rgba_unmultiplied(7, 11, 16, 224))
-                        .stroke(egui::Stroke::new(
-                            1.0,
-                            egui::Color32::from_rgba_unmultiplied(255, 255, 255, 36),
-                        ))
+                    let response = theme::panel_frame()
                         .inner_margin(egui::Margin::same(10.0))
                         .show(ui, |ui| {
                             ui.set_width(DETAIL_PANEL_WIDTH);
-                            ui.label(egui::RichText::new(probe.title).strong().size(15.0));
+                            ui.label(
+                                egui::RichText::new(probe.title).font(theme::medium_font(15.0)),
+                            );
                             ui.small(format!(
                                 "sample ({:.0}, {:.0})",
                                 probe.sample_grid.0, probe.sample_grid.1

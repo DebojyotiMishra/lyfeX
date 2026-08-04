@@ -23,3 +23,6 @@ egui-ash-renderer.workspace = true
 winit.workspace = true
 raw-window-handle.workspace = true
 shaderc.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+raw-window-metal = "1"

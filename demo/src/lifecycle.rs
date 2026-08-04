@@ -33,6 +33,7 @@ impl DemoApp {
 
         log::info!("Creating egui renderer...");
         let egui_renderer = EguiRenderer::new(&render_ctx, &window)?;
+        crate::theme::install(egui_renderer.context());
         log::info!("Egui renderer created successfully");
 
         let species_names = simulation

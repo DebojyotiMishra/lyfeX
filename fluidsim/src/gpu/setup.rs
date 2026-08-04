@@ -1,4 +1,5 @@
 use super::*;
+use std::ffi::CStr;
 
 impl GpuReactionRule {
     pub const NONE: u32 = u32::MAX;
@@ -46,6 +47,14 @@ impl GpuSimulation {
             .engine_version(vk::make_api_version(0, 1, 0, 0))
             .api_version(vk::API_VERSION_1_2);
 
+        #[cfg(target_os = "macos")]
+        let portability_extensions = [vk::KHR_PORTABILITY_ENUMERATION_NAME.as_ptr()];
+        #[cfg(target_os = "macos")]
+        let instance_info = vk::InstanceCreateInfo::default()
+            .application_info(&app_info)
+            .enabled_extension_names(&portability_extensions)
+            .flags(vk::InstanceCreateFlags::ENUMERATE_PORTABILITY_KHR);
+        #[cfg(not(target_os = "macos"))]
         let instance_info = vk::InstanceCreateInfo::default().application_info(&app_info);
         let instance = unsafe { entry.create_instance(&instance_info, None)? };
 
@@ -91,8 +100,22 @@ impl GpuSimulation {
             .queue_family_index(compute_queue_family)
             .queue_priorities(&queue_priority);
 
-        let device_info =
-            vk::DeviceCreateInfo::default().queue_create_infos(std::slice::from_ref(&queue_info));
+        let mut device_extensions: Vec<*const std::ffi::c_char> = Vec::new();
+        let available_device_extensions = unsafe {
+            instance
+                .enumerate_device_extension_properties(physical_device)
+                .unwrap_or_default()
+        };
+        if available_device_extensions.iter().any(|ext| {
+            let name = unsafe { CStr::from_ptr(ext.extension_name.as_ptr()) };
+            name == vk::KHR_PORTABILITY_SUBSET_NAME
+        }) {
+            device_extensions.push(vk::KHR_PORTABILITY_SUBSET_NAME.as_ptr());
+        }
+
+        let device_info = vk::DeviceCreateInfo::default()
+            .queue_create_infos(std::slice::from_ref(&queue_info))
+            .enabled_extension_names(&device_extensions);
 
         let device = unsafe { instance.create_device(physical_device, &device_info, None)? };
         let queue = unsafe { device.get_device_queue(compute_queue_family, 0) };

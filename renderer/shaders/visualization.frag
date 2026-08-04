@@ -16,7 +16,7 @@ layout(push_constant) uniform PushConstants {
     uint width;
     uint height;
     uint species_count;
-    uint frame_counter;  // For debug animation
+    uint frame_counter;  // Unused by the shader; kept for CPU/GPU struct layout parity
     uint thermal_view;   // 1 = show thermal color ramp, 0 = normal
 };
 
@@ -100,21 +100,7 @@ void main() {
     
     uint cell_index = y * width + x;
     uint cell_count = width * height;
-    
-    // DEBUG: Add animated border to verify rendering is updating
-    float edge_dist = min(min(fragUV.x, 1.0 - fragUV.x), min(fragUV.y, 1.0 - fragUV.y));
-    float border_width = 0.01;  // 1% of screen
-    if (edge_dist < border_width) {
-        float t = float(frame_counter % 120) / 120.0;
-        vec3 border_color = vec3(
-            0.5 + 0.5 * sin(t * 6.28318),
-            0.5 + 0.5 * sin(t * 6.28318 + 2.094),
-            0.5 + 0.5 * sin(t * 6.28318 + 4.189)
-        );
-        outColor = vec4(border_color, 1.0);
-        return;
-    }
-    
+
     // Thermal view mode: show temperature color ramp for all cells
     if (thermal_view != 0) {
         float temp = temperatures[cell_index];
