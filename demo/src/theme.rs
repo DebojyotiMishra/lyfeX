@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use egui::{
     Color32, Context, Frame, FontData, FontDefinitions, FontFamily, FontId, Margin, Rounding,
-    Shadow, Stroke, TextStyle, Vec2,
+    Shadow, Stroke, TextStyle, Theme, ThemePreference, Vec2,
 };
 
 /// Corner radius for floating panels (control bar, inspector, tooltips).
@@ -57,6 +57,9 @@ pub(crate) fn medium_font(size: f32) -> FontId {
 pub(crate) fn install(ctx: &Context) {
     install_fonts(ctx);
     install_style(ctx);
+    // `panel_frame` and the accent colors are hardcoded for a dark background, so
+    // pin the preference rather than letting egui follow the system appearance.
+    ctx.set_theme(ThemePreference::Dark);
 }
 
 fn install_fonts(ctx: &Context) {
@@ -185,5 +188,10 @@ fn install_style(ctx: &Context) {
     w.open.fg_stroke = Stroke::new(1.0, Color32::WHITE);
     w.open.rounding = Rounding::same(RADIUS_CONTROL);
 
-    ctx.set_style(Arc::new(style));
+    // `set_style` would only write whichever theme is active at install time, leaving
+    // the other holding egui's defaults. Install into both so a theme switch can't
+    // strip the fonts, rounding, and accent while `panel_frame` keeps painting dark.
+    let style = Arc::new(style);
+    ctx.set_style_of(Theme::Dark, style.clone());
+    ctx.set_style_of(Theme::Light, style);
 }
