@@ -68,6 +68,15 @@ pub struct DiffusionPushConstants {
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
+pub struct NetChargePushConstants {
+    pub width: u32,
+    pub height: u32,
+    pub species_count: u32,
+    pub _pad: u32,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Pod, Zeroable)]
 pub struct ReactionPushConstants {
     pub width: u32,
     pub height: u32,
@@ -280,6 +289,12 @@ pub struct GpuSimulation {
     pub charge_projection_pipeline: vk::Pipeline,
     pub charge_descriptor_pool: vk::DescriptorPool,
     pub charge_descriptor_sets: Vec<vk::DescriptorSet>,
+    pub net_charge: GpuBuffer,
+    pub net_charge_descriptor_set_layout: vk::DescriptorSetLayout,
+    pub net_charge_pipeline_layout: vk::PipelineLayout,
+    pub net_charge_pipeline: vk::Pipeline,
+    pub net_charge_descriptor_pool: vk::DescriptorPool,
+    pub net_charge_descriptor_sets: Vec<vk::DescriptorSet>,
     pub command_pool: vk::CommandPool,
     pub command_buffer: vk::CommandBuffer,
     pub fence: vk::Fence,

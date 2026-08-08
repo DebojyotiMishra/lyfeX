@@ -89,6 +89,13 @@ impl Drop for GpuSimulation {
             self.device
                 .destroy_descriptor_pool(self.charge_descriptor_pool, None);
             self.device
+                .destroy_descriptor_pool(self.net_charge_descriptor_pool, None);
+            self.device.destroy_pipeline(self.net_charge_pipeline, None);
+            self.device
+                .destroy_pipeline_layout(self.net_charge_pipeline_layout, None);
+            self.device
+                .destroy_descriptor_set_layout(self.net_charge_descriptor_set_layout, None);
+            self.device
                 .destroy_pipeline(self.charge_projection_pipeline, None);
             self.device
                 .destroy_pipeline_layout(self.charge_pipeline_layout, None);

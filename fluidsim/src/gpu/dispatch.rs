@@ -38,6 +38,42 @@ impl GpuSimulation {
         }
     }
 
+    fn record_net_charge_dispatch(&self, cmd: vk::CommandBuffer, descriptor_set: vk::DescriptorSet) {
+        let push_constants = NetChargePushConstants {
+            width: self.width,
+            height: self.height,
+            species_count: self.species_count as u32,
+            _pad: 0,
+        };
+
+        unsafe {
+            self.device.cmd_bind_pipeline(
+                cmd,
+                vk::PipelineBindPoint::COMPUTE,
+                self.net_charge_pipeline,
+            );
+            self.device.cmd_bind_descriptor_sets(
+                cmd,
+                vk::PipelineBindPoint::COMPUTE,
+                self.net_charge_pipeline_layout,
+                0,
+                &[descriptor_set],
+                &[],
+            );
+            self.device.cmd_push_constants(
+                cmd,
+                self.net_charge_pipeline_layout,
+                vk::ShaderStageFlags::COMPUTE,
+                0,
+                bytemuck::bytes_of(&push_constants),
+            );
+
+            let workgroup_size = 256u32;
+            let num_groups = (self.cell_count as u32).div_ceil(workgroup_size);
+            self.device.cmd_dispatch(cmd, num_groups, 1, 1);
+        }
+    }
+
     fn record_diffusion_dispatch(
         &self,
         cmd: vk::CommandBuffer,
@@ -360,6 +396,14 @@ impl GpuSimulation {
                 _pad: [0, 0],
             };
 
+            // Net charge depends on the concentrations diffusion is about to read, so it
+            // is recomputed at the top of every substep and fenced before the read.
+            self.record_net_charge_dispatch(
+                cmd,
+                self.net_charge_descriptor_sets[self.current_buffer],
+            );
+            self.record_compute_buffer_barrier(cmd, self.net_charge.buffer);
+
             let diffusion_descriptor_set = self.descriptor_sets[self.current_buffer];
             self.record_diffusion_dispatch(cmd, diffusion_descriptor_set, &diffusion_push);
 
@@ -530,7 +574,17 @@ impl GpuSimulation {
                 .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
             self.device
                 .begin_command_buffer(self.command_buffer, &begin_info)?;
+        }
 
+        // diffusion.comp reads the precomputed net charge, so this standalone path has
+        // to populate it too - otherwise it samples a buffer that was never written.
+        self.record_net_charge_dispatch(
+            self.command_buffer,
+            self.net_charge_descriptor_sets[self.current_buffer],
+        );
+        self.record_compute_buffer_barrier(self.command_buffer, self.net_charge.buffer);
+
+        unsafe {
             self.device.cmd_bind_pipeline(
                 self.command_buffer,
                 vk::PipelineBindPoint::COMPUTE,
