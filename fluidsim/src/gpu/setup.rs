@@ -430,6 +430,11 @@ impl GpuSimulation {
                 .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
                 .descriptor_count(1)
                 .stage_flags(vk::ShaderStageFlags::COMPUTE),
+            vk::DescriptorSetLayoutBinding::default()
+                .binding(5)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::COMPUTE),
         ];
 
         let layout_info = vk::DescriptorSetLayoutCreateInfo::default().bindings(&bindings);
@@ -550,9 +555,128 @@ impl GpuSimulation {
         };
         unsafe { device.destroy_shader_module(charge_shader_module, None) };
 
+        let net_charge_size = (cell_count * std::mem::size_of::<f32>()) as u64;
+        let net_charge = {
+            let mut alloc = allocator.lock();
+            GpuBuffer::new(
+                &device,
+                &mut alloc,
+                net_charge_size,
+                vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
+                MemoryLocation::GpuOnly,
+                "net_charge",
+            )?
+        };
+
+        let net_charge_bindings = [
+            vk::DescriptorSetLayoutBinding::default()
+                .binding(0)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::COMPUTE),
+            vk::DescriptorSetLayoutBinding::default()
+                .binding(1)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::COMPUTE),
+            vk::DescriptorSetLayoutBinding::default()
+                .binding(2)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::COMPUTE),
+            vk::DescriptorSetLayoutBinding::default()
+                .binding(3)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::COMPUTE),
+        ];
+        let net_charge_layout_info =
+            vk::DescriptorSetLayoutCreateInfo::default().bindings(&net_charge_bindings);
+        let net_charge_descriptor_set_layout =
+            unsafe { device.create_descriptor_set_layout(&net_charge_layout_info, None)? };
+
+        let net_charge_push_constant_range = vk::PushConstantRange::default()
+            .stage_flags(vk::ShaderStageFlags::COMPUTE)
+            .offset(0)
+            .size(std::mem::size_of::<NetChargePushConstants>() as u32);
+        let net_charge_pipeline_layout_info = vk::PipelineLayoutCreateInfo::default()
+            .set_layouts(std::slice::from_ref(&net_charge_descriptor_set_layout))
+            .push_constant_ranges(std::slice::from_ref(&net_charge_push_constant_range));
+        let net_charge_pipeline_layout =
+            unsafe { device.create_pipeline_layout(&net_charge_pipeline_layout_info, None)? };
+
+        let net_charge_spirv = compiler
+            .compile_into_spirv(
+                include_str!("../../shaders/net_charge.comp"),
+                shaderc::ShaderKind::Compute,
+                "net_charge.comp",
+                "main",
+                Some(&options),
+            )
+            .context("Failed to compile net charge shader")?;
+        let net_charge_shader_module_info =
+            vk::ShaderModuleCreateInfo::default().code(net_charge_spirv.as_binary());
+        let net_charge_shader_module =
+            unsafe { device.create_shader_module(&net_charge_shader_module_info, None)? };
+        let net_charge_stage_info = vk::PipelineShaderStageCreateInfo::default()
+            .stage(vk::ShaderStageFlags::COMPUTE)
+            .module(net_charge_shader_module)
+            .name(entry_name);
+        let net_charge_pipeline_info = vk::ComputePipelineCreateInfo::default()
+            .stage(net_charge_stage_info)
+            .layout(net_charge_pipeline_layout);
+        let net_charge_pipeline = unsafe {
+            device
+                .create_compute_pipelines(
+                    vk::PipelineCache::null(),
+                    &[net_charge_pipeline_info],
+                    None,
+                )
+                .map_err(|error| {
+                    anyhow::anyhow!("Failed to create net charge pipeline: {:?}", error.1)
+                })?[0]
+        };
+        unsafe { device.destroy_shader_module(net_charge_shader_module, None) };
+
+        let net_charge_pool_sizes = [vk::DescriptorPoolSize::default()
+            .ty(vk::DescriptorType::STORAGE_BUFFER)
+            .descriptor_count(8)];
+        let net_charge_pool_info = vk::DescriptorPoolCreateInfo::default()
+            .max_sets(2)
+            .pool_sizes(&net_charge_pool_sizes);
+        let net_charge_descriptor_pool =
+            unsafe { device.create_descriptor_pool(&net_charge_pool_info, None)? };
+        let net_charge_layouts = [
+            net_charge_descriptor_set_layout,
+            net_charge_descriptor_set_layout,
+        ];
+        let net_charge_alloc_info = vk::DescriptorSetAllocateInfo::default()
+            .descriptor_pool(net_charge_descriptor_pool)
+            .set_layouts(&net_charge_layouts);
+        let net_charge_descriptor_sets =
+            unsafe { device.allocate_descriptor_sets(&net_charge_alloc_info)? };
+
+        for (index, conc) in [conc_buffer_a.buffer, conc_buffer_b.buffer]
+            .into_iter()
+            .enumerate()
+        {
+            Self::update_net_charge_descriptor_set(
+                &device,
+                net_charge_descriptor_sets[index],
+                conc,
+                solid_mask.buffer,
+                species_charges.buffer,
+                net_charge.buffer,
+                conc_buffer_size,
+                mask_buffer_size,
+                charges_buffer_size,
+                net_charge_size,
+            );
+        }
+
         let pool_sizes = [vk::DescriptorPoolSize::default()
             .ty(vk::DescriptorType::STORAGE_BUFFER)
-            .descriptor_count(10)];
+            .descriptor_count(12)];
         let pool_info = vk::DescriptorPoolCreateInfo::default()
             .max_sets(2)
             .pool_sizes(&pool_sizes);
@@ -588,10 +712,12 @@ impl GpuSimulation {
             solid_mask.buffer,
             diffusion_coeffs.buffer,
             species_charges.buffer,
+            net_charge.buffer,
             conc_buffer_size,
             mask_buffer_size,
             coeffs_buffer_size,
             charges_buffer_size,
+            net_charge_size,
         );
         Self::update_descriptor_set(
             &device,
@@ -601,10 +727,12 @@ impl GpuSimulation {
             solid_mask.buffer,
             diffusion_coeffs.buffer,
             species_charges.buffer,
+            net_charge.buffer,
             conc_buffer_size,
             mask_buffer_size,
             coeffs_buffer_size,
             charges_buffer_size,
+            net_charge_size,
         );
         Self::update_charge_descriptor_set(
             &device,
@@ -659,6 +787,12 @@ impl GpuSimulation {
             charge_projection_pipeline,
             charge_descriptor_pool,
             charge_descriptor_sets,
+            net_charge,
+            net_charge_descriptor_set_layout,
+            net_charge_pipeline_layout,
+            net_charge_pipeline,
+            net_charge_descriptor_pool,
+            net_charge_descriptor_sets,
             command_pool,
             command_buffer,
             fence,
@@ -789,10 +923,12 @@ impl GpuSimulation {
         mask_buffer: vk::Buffer,
         coeffs_buffer: vk::Buffer,
         charges_buffer: vk::Buffer,
+        net_charge_buffer: vk::Buffer,
         conc_size: u64,
         mask_size: u64,
         coeffs_size: u64,
         charges_size: u64,
+        net_charge_size: u64,
     ) {
         let src_info = [vk::DescriptorBufferInfo::default()
             .buffer(src_buffer)
@@ -814,6 +950,10 @@ impl GpuSimulation {
             .buffer(charges_buffer)
             .offset(0)
             .range(charges_size)];
+        let net_charge_info = [vk::DescriptorBufferInfo::default()
+            .buffer(net_charge_buffer)
+            .offset(0)
+            .range(net_charge_size)];
 
         let writes = [
             vk::WriteDescriptorSet::default()
@@ -841,6 +981,67 @@ impl GpuSimulation {
                 .dst_binding(4)
                 .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
                 .buffer_info(&charges_info),
+            vk::WriteDescriptorSet::default()
+                .dst_set(set)
+                .dst_binding(5)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .buffer_info(&net_charge_info),
+        ];
+
+        unsafe { device.update_descriptor_sets(&writes, &[]) };
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn update_net_charge_descriptor_set(
+        device: &ash::Device,
+        set: vk::DescriptorSet,
+        conc_buffer: vk::Buffer,
+        mask_buffer: vk::Buffer,
+        charges_buffer: vk::Buffer,
+        net_charge_buffer: vk::Buffer,
+        conc_size: u64,
+        mask_size: u64,
+        charges_size: u64,
+        net_charge_size: u64,
+    ) {
+        let conc_info = [vk::DescriptorBufferInfo::default()
+            .buffer(conc_buffer)
+            .offset(0)
+            .range(conc_size)];
+        let mask_info = [vk::DescriptorBufferInfo::default()
+            .buffer(mask_buffer)
+            .offset(0)
+            .range(mask_size)];
+        let charges_info = [vk::DescriptorBufferInfo::default()
+            .buffer(charges_buffer)
+            .offset(0)
+            .range(charges_size)];
+        let net_charge_info = [vk::DescriptorBufferInfo::default()
+            .buffer(net_charge_buffer)
+            .offset(0)
+            .range(net_charge_size)];
+
+        let writes = [
+            vk::WriteDescriptorSet::default()
+                .dst_set(set)
+                .dst_binding(0)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .buffer_info(&conc_info),
+            vk::WriteDescriptorSet::default()
+                .dst_set(set)
+                .dst_binding(1)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .buffer_info(&mask_info),
+            vk::WriteDescriptorSet::default()
+                .dst_set(set)
+                .dst_binding(2)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .buffer_info(&charges_info),
+            vk::WriteDescriptorSet::default()
+                .dst_set(set)
+                .dst_binding(3)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .buffer_info(&net_charge_info),
         ];
 
         unsafe { device.update_descriptor_sets(&writes, &[]) };

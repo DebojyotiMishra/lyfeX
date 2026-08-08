@@ -1,0 +1,63 @@
+#version 450
+
+// Per-cell net charge prepass.
+//
+// Computes sum(z_i * c_i) once per cell so diffusion.comp can read it as a single
+// lookup. Previously diffusion.comp recomputed this inline for the cell and each of
+// its four neighbours, and did so once per species - O(species_count^2) work per cell
+// per substep for a value that does not depend on the species being diffused.
+//
+// Layout: [cell] where cell = y * width + x
+// Dispatch: (ceil(cell_count / 256), 1, 1)
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant) uniform PushConstants {
+    uint width;
+    uint height;
+    uint species_count;
+    uint _pad;
+};
+
+layout(set = 0, binding = 0) readonly buffer Concentrations {
+    float conc[];
+};
+
+layout(set = 0, binding = 1) readonly buffer SolidMask {
+    uint solid_mask[];
+};
+
+layout(set = 0, binding = 2) readonly buffer SpeciesCharges {
+    int species_charges[];
+};
+
+layout(set = 0, binding = 3) writeonly buffer NetCharge {
+    float net_charge[];
+};
+
+void main() {
+    uint cell_index = gl_GlobalInvocationID.x;
+    uint cell_count = width * height;
+
+    if (cell_index >= cell_count) {
+        return;
+    }
+
+    // Solid cells hold no concentration; write zero so neighbour reads in
+    // diffusion.comp need no special case.
+    if (solid_mask[cell_index] != 0) {
+        net_charge[cell_index] = 0.0;
+        return;
+    }
+
+    float total = 0.0;
+    for (uint s = 0; s < species_count; s++) {
+        int z = species_charges[s];
+        if (z == 0) {
+            continue;
+        }
+        total += float(z) * conc[s * cell_count + cell_index];
+    }
+
+    net_charge[cell_index] = total;
+}
