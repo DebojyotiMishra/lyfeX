@@ -30,6 +30,9 @@ layout(set = 0, binding = 2) readonly buffer SolidMask {
     uint solid_mask[];
 };
 
+// Must match MIN_TEMPERATURE_KELVIN in reaction.comp.
+const float MIN_TEMPERATURE_KELVIN = 1.0;
+
 void main() {
     uint cell_index = gl_GlobalInvocationID.x;
     uint cell_count = width * height;
@@ -79,5 +82,5 @@ void main() {
     }
 
     float new_t = t + thermal_diffusivity * dt * flux;
-    dst_temp[cell_index] = max(new_t, 0.0);
+    dst_temp[cell_index] = max(new_t, MIN_TEMPERATURE_KELVIN);
 }
