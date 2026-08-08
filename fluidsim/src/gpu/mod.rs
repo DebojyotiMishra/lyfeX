@@ -60,10 +60,9 @@ pub struct DiffusionPushConstants {
     pub width: u32,
     pub height: u32,
     pub species_count: u32,
-    pub species_index: u32,
     pub diffusion_rate: f32,
     pub dt: f32,
-    pub _pad: [u32; 2],
+    pub _pad: [u32; 3],
 }
 
 #[repr(C)]
