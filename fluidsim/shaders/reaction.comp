@@ -72,6 +72,12 @@ layout(set = 0, binding = 3) readonly buffer ReactionRules {
 const uint NO_SPECIES = 0xFFFFFFFFu;
 const uint KINETIC_MODEL_MICHAELIS_MENTEN = 1u;
 
+// Shared floor for every temperature this shader reads or writes. Must match
+// MIN_TEMPERATURE_KELVIN in thermal_diffusion.comp: a value stored below it here
+// would be read raw by the thermal pass's flux accumulation before that pass
+// clamps its own output.
+const float MIN_TEMPERATURE_KELVIN = 1.0;
+
 void main() {
     uint cell_index = gl_GlobalInvocationID.x;
     uint cell_count = width * height;
@@ -106,7 +112,7 @@ void main() {
         float c_b = has_second_reactant ? conc[idx_b * cell_count + cell_index] : 1.0;
         bool has_catalyst = catalyst_idx != NO_SPECIES;
         float catalyst_activity = has_catalyst ? conc[catalyst_idx * cell_count + cell_index] : 1.0;
-        float local_temperature = max(temperatures[cell_index], 1.0);
+        float local_temperature = max(temperatures[cell_index], MIN_TEMPERATURE_KELVIN);
 
         // Gibbs free energy: ΔG = ΔH - TΔS.
         float dG = dH - local_temperature * dS;
@@ -152,6 +158,6 @@ void main() {
         // Negative ΔG releases usable energy; positive ΔG cools the cell.
         float cp = 4184.0;  // J/(kg·K)
         float dT = -dG * extent / cp;
-        temperatures[cell_index] += dT;
+        temperatures[cell_index] = max(temperatures[cell_index] + dT, MIN_TEMPERATURE_KELVIN);
     }
 }
