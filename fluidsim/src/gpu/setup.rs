@@ -296,9 +296,16 @@ impl GpuSimulation {
             "species_charges",
         )?;
 
+        // The staging buffer is reused for every host->device upload, so it must cover
+        // the largest of them - not just the per-cell grids. Reaction rules, leak
+        // channels, and enzyme entities are all uploaded through it too, and on a small
+        // enough grid they are the largest payload.
         let staging_size = conc_buffer_size
             .max(mask_buffer_size)
-            .max(charges_buffer_size);
+            .max(charges_buffer_size)
+            .max((MAX_REACTION_RULES * std::mem::size_of::<GpuReactionRule>()) as u64)
+            .max((MAX_LEAK_CHANNELS * std::mem::size_of::<GpuLeakChannel>()) as u64)
+            .max((MAX_ENZYME_ENTITIES * std::mem::size_of::<GpuEnzymeEntity>()) as u64);
         let mut staging_buffer = GpuBuffer::new(
             &device,
             &mut alloc,

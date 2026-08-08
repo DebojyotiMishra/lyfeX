@@ -42,6 +42,15 @@ impl GpuBuffer {
             .allocation
             .mapped_slice_mut()
             .context("Buffer not mapped for CPU access")?;
+        // Report the overflow as itself: slicing would panic with an opaque
+        // out-of-range index that says nothing about which buffer was too small.
+        if bytes.len() > mapped.len() {
+            bail!(
+                "buffer write of {} bytes exceeds capacity of {} bytes",
+                bytes.len(),
+                mapped.len()
+            );
+        }
         mapped[..bytes.len()].copy_from_slice(bytes);
         Ok(())
     }
@@ -51,7 +60,15 @@ impl GpuBuffer {
             .allocation
             .mapped_slice()
             .context("Buffer not mapped for CPU access")?;
-        let bytes = &mapped[..count * std::mem::size_of::<T>()];
+        let requested = count * std::mem::size_of::<T>();
+        if requested > mapped.len() {
+            bail!(
+                "buffer read of {} bytes exceeds capacity of {} bytes",
+                requested,
+                mapped.len()
+            );
+        }
+        let bytes = &mapped[..requested];
         Ok(bytemuck::cast_slice(bytes).to_vec())
     }
 }
