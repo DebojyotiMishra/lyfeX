@@ -44,13 +44,38 @@ pub(super) fn central_box_bounds(width: u32, height: u32) -> CentralBoxBounds {
     }
 }
 
+/// Outer corner radius of the wall built by [`add_titanium_hollow_box`].
+pub(super) fn corner_radius(bounds: CentralBoxBounds) -> u32 {
+    let outer_size = bounds.outer_x1 - bounds.outer_x0;
+    (outer_size / 16).max(bounds.wall_thickness)
+}
+
+/// Smallest inset from the axis-aligned inner rect that still clears the rounded
+/// corners of the cavity.
+///
+/// The cavity's corner arc has radius `r = corner_radius - wall_thickness`, centred
+/// `r` cells in along each axis. A point `m` cells in from the rect corner along both
+/// axes lies within the arc - i.e. inside the fluid - only when
+/// `(r - m) * sqrt(2) <= r`, which reduces to `m >= r * (1 - 1/sqrt(2))`.
+///
+/// That bound is the exact tangent point, which is not good enough on its own: the wall
+/// is rasterized to whole cells and callers truncate to integer coordinates, so a point
+/// sitting exactly on the arc still resolves to a solid cell. One cell of slack is added
+/// to land strictly inside the fluid.
+///
+/// Consumers that place entities against `inner_*` must respect this, or they will
+/// spawn inside the wall once the radius grows with the grid.
+pub(super) fn rounded_corner_inset(bounds: CentralBoxBounds) -> f32 {
+    let arc_radius = corner_radius(bounds).saturating_sub(bounds.wall_thickness) as f32;
+    arc_radius * (1.0 - std::f32::consts::FRAC_1_SQRT_2) + 1.0
+}
+
 pub(super) fn add_titanium_hollow_box(
     builder: ScenarioBuilder,
     bounds: CentralBoxBounds,
 ) -> ScenarioBuilder {
     let (builder, titanium) = builder.register_material("titanium", [0.6, 0.6, 0.65, 1.0]);
-    let outer_size = bounds.outer_x1 - bounds.outer_x0;
-    let radius = (outer_size / 16).max(bounds.wall_thickness);
+    let radius = corner_radius(bounds);
     builder.fill_rounded_hollow_rect(
         bounds.outer_x0,
         bounds.outer_y0,
