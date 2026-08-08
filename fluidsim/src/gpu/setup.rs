@@ -47,16 +47,33 @@ impl GpuSimulation {
             .engine_version(vk::make_api_version(0, 1, 0, 0))
             .api_version(vk::API_VERSION_1_2);
 
+        // Portability enumeration is how MoltenVK is discovered on macOS, but it is not
+        // universally present (older loaders, or a native ICD). Requesting it when the
+        // loader does not advertise it fails instance creation outright, so only enable
+        // it when it is actually available.
         #[cfg(target_os = "macos")]
-        let portability_extensions = [vk::KHR_PORTABILITY_ENUMERATION_NAME.as_ptr()];
-        #[cfg(target_os = "macos")]
-        let instance_info = vk::InstanceCreateInfo::default()
-            .application_info(&app_info)
-            .enabled_extension_names(&portability_extensions)
-            .flags(vk::InstanceCreateFlags::ENUMERATE_PORTABILITY_KHR);
+        let instance = {
+            let available = unsafe { entry.enumerate_instance_extension_properties(None) }
+                .context("failed to enumerate instance extensions")?;
+            let has_portability = available.iter().any(|ext| {
+                let name = unsafe { CStr::from_ptr(ext.extension_name.as_ptr()) };
+                name == vk::KHR_PORTABILITY_ENUMERATION_NAME
+            });
+
+            let portability_extensions = [vk::KHR_PORTABILITY_ENUMERATION_NAME.as_ptr()];
+            let mut instance_info = vk::InstanceCreateInfo::default().application_info(&app_info);
+            if has_portability {
+                instance_info = instance_info
+                    .enabled_extension_names(&portability_extensions)
+                    .flags(vk::InstanceCreateFlags::ENUMERATE_PORTABILITY_KHR);
+            }
+            unsafe { entry.create_instance(&instance_info, None)? }
+        };
         #[cfg(not(target_os = "macos"))]
-        let instance_info = vk::InstanceCreateInfo::default().application_info(&app_info);
-        let instance = unsafe { entry.create_instance(&instance_info, None)? };
+        let instance = {
+            let instance_info = vk::InstanceCreateInfo::default().application_info(&app_info);
+            unsafe { entry.create_instance(&instance_info, None)? }
+        };
 
         let physical_devices = unsafe { instance.enumerate_physical_devices()? };
         if physical_devices.is_empty() {

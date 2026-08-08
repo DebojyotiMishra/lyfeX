@@ -105,6 +105,18 @@ impl RenderContext {
             .display_handle()
             .map_err(|e| anyhow::anyhow!("{}", e))?;
         let raw_display_handle = display_handle.as_raw();
+
+        // Portability enumeration is how MoltenVK is discovered on macOS, but it is not
+        // universally present (older loaders, or a native ICD). Requesting it when the
+        // loader does not advertise it fails instance creation outright.
+        #[cfg(target_os = "macos")]
+        let has_portability = unsafe { entry.enumerate_instance_extension_properties(None) }
+            .context("failed to enumerate instance extensions")?
+            .iter()
+            .any(|ext| {
+                let name = unsafe { CStr::from_ptr(ext.extension_name.as_ptr()) };
+                name == vk::KHR_PORTABILITY_ENUMERATION_NAME
+            });
         match raw_display_handle {
             RawDisplayHandle::Xlib(_) => {
                 extensions.push(ash::khr::xlib_surface::NAME.as_ptr());
@@ -118,7 +130,9 @@ impl RenderContext {
             #[cfg(target_os = "macos")]
             RawDisplayHandle::AppKit(_) => {
                 extensions.push(ash::ext::metal_surface::NAME.as_ptr());
-                extensions.push(vk::KHR_PORTABILITY_ENUMERATION_NAME.as_ptr());
+                if has_portability {
+                    extensions.push(vk::KHR_PORTABILITY_ENUMERATION_NAME.as_ptr());
+                }
             }
             _ => bail!("Unsupported display handle type"),
         }
@@ -127,7 +141,7 @@ impl RenderContext {
             .application_info(&app_info)
             .enabled_extension_names(&extensions);
         #[cfg(target_os = "macos")]
-        if matches!(raw_display_handle, RawDisplayHandle::AppKit(_)) {
+        if has_portability && matches!(raw_display_handle, RawDisplayHandle::AppKit(_)) {
             instance_info = instance_info.flags(vk::InstanceCreateFlags::ENUMERATE_PORTABILITY_KHR);
         }
 
