@@ -715,8 +715,14 @@ fn create_surface(
         (RawDisplayHandle::AppKit(_), RawWindowHandle::AppKit(window)) => {
             let layer = unsafe { raw_window_metal::Layer::from_ns_view(window.ns_view) };
             let loader = ash::ext::metal_surface::Instance::new(entry, instance);
+            // `into_raw` yields a +1 retained CAMetalLayer and makes the surface its
+            // owner, so it stays alive as long as the surface references it. `as_ptr`
+            // would only borrow: dropping `layer` here would release our retain and
+            // leave the surface pointing at a layer kept alive only incidentally, by
+            // the NSView holding it as a sublayer.
+            let layer_ptr = layer.into_raw();
             let info =
-                vk::MetalSurfaceCreateInfoEXT::default().layer(layer.as_ptr().as_ptr() as *const _);
+                vk::MetalSurfaceCreateInfoEXT::default().layer(layer_ptr.as_ptr() as *const _);
             Ok(unsafe { loader.create_metal_surface(&info, None)? })
         }
         _ => bail!("Unsupported platform for Vulkan surface creation"),
