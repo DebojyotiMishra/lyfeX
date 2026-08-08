@@ -354,10 +354,9 @@ impl GpuSimulation {
                 width: self.width,
                 height: self.height,
                 species_count: self.species_count as u32,
-                species_index: 0xFFFFFFFF,
                 diffusion_rate,
                 dt: substep_dt,
-                _pad: [0, 0],
+                _pad: [0, 0, 0],
             };
 
             let diffusion_descriptor_set = self.descriptor_sets[self.current_buffer];
@@ -514,10 +513,9 @@ impl GpuSimulation {
             width: self.width,
             height: self.height,
             species_count: self.species_count as u32,
-            species_index: 0xFFFFFFFF,
             diffusion_rate,
             dt,
-            _pad: [0, 0],
+            _pad: [0, 0, 0],
         };
 
         let descriptor_set = self.descriptor_sets[self.current_buffer];
