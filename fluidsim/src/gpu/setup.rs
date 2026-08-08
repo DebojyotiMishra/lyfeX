@@ -118,10 +118,14 @@ impl GpuSimulation {
             .queue_priorities(&queue_priority);
 
         let mut device_extensions: Vec<*const std::ffi::c_char> = Vec::new();
+        // Propagate rather than defaulting to empty: an empty extension list and a failed
+        // query are very different, and treating the latter as the former would silently
+        // omit VK_KHR_portability_subset on MoltenVK, which the spec requires be enabled
+        // whenever the device supports it.
         let available_device_extensions = unsafe {
             instance
                 .enumerate_device_extension_properties(physical_device)
-                .unwrap_or_default()
+                .context("failed to enumerate device extensions")?
         };
         if available_device_extensions.iter().any(|ext| {
             let name = unsafe { CStr::from_ptr(ext.extension_name.as_ptr()) };
