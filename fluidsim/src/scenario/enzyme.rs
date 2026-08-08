@@ -1,7 +1,10 @@
 use crate::enzyme::{EnzymeEntity, EnzymeField};
 use crate::grid::CellCoord;
 
-use super::helpers::{add_titanium_hollow_box, central_box_bounds, lcg_unit, normalized_position};
+use super::helpers::{
+    add_titanium_hollow_box, central_box_bounds, lcg_unit, normalized_position,
+    rounded_corner_inset,
+};
 use super::{Scenario, ScenarioBuilder};
 
 /// Create an enzyme-entity phosphorylation scenario.
@@ -52,7 +55,10 @@ pub fn create_enzyme_scenario(width: u32, height: u32) -> Scenario {
         }
     }
 
-    let entity_margin = 10.0;
+    // The placement field is axis-aligned but the cavity's corners are rounded, and the
+    // radius scales with the grid. Take whichever is larger so entities clear the wall at
+    // every grid size rather than only the ones where 10 happens to be enough.
+    let entity_margin = 10.0f32.max(rounded_corner_inset(bounds));
     let field = EnzymeField {
         min_x: bounds.inner_x0 as f32 + entity_margin,
         min_y: bounds.inner_y0 as f32 + entity_margin,
@@ -103,4 +109,57 @@ pub fn create_enzyme_scenario(width: u32, height: u32) -> Scenario {
     builder.enzyme_entities = entities;
     builder.enzyme_field = Some(field);
     builder.build()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The cavity's corner radius scales with the grid, so a fixed placement margin
+    /// eventually leaves the corners of the placement rect buried in the titanium wall.
+    ///
+    /// This asserts on the rect's corners rather than on the sampled entities: entities
+    /// are placed uniformly at random, so the corner slivers are a small enough fraction
+    /// of the field that a seeded run almost never lands in one. The corners are where
+    /// the invariant actually breaks, and checking them is both deterministic and the
+    /// property the placement code relies on.
+    ///
+    /// 1280 is just past the threshold where the rounded corners overtake a margin of 10.
+    #[test]
+    fn enzyme_placement_field_stays_clear_of_the_wall() {
+        for size in [256, 512, 1024, 1280, 2048] {
+            let scenario = create_enzyme_scenario(size, size);
+            let field = scenario
+                .enzyme_field
+                .as_ref()
+                .expect("enzyme scenario should define a placement field");
+
+            let corners = [
+                (field.min_x, field.min_y),
+                (field.max_x, field.min_y),
+                (field.min_x, field.max_y),
+                (field.max_x, field.max_y),
+            ];
+            for (x, y) in corners {
+                let index = scenario.grid.index_of(CellCoord::new(x as u32, y as u32));
+                assert!(
+                    !scenario.solid_geometry.is_solid(index),
+                    "{size}x{size}: placement field corner ({x}, {y}) is inside a solid cell"
+                );
+            }
+
+            for (entity_index, entity) in scenario.enzyme_entities.iter().enumerate() {
+                let position = entity.position();
+                let index = scenario
+                    .grid
+                    .index_of(CellCoord::new(position.x as u32, position.y as u32));
+                assert!(
+                    !scenario.solid_geometry.is_solid(index),
+                    "{size}x{size}: entity {entity_index} at ({}, {}) is inside a solid cell",
+                    position.x,
+                    position.y
+                );
+            }
+        }
+    }
 }
