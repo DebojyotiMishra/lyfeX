@@ -78,6 +78,9 @@ const uint KINETIC_MODEL_MICHAELIS_MENTEN = 1u;
 // clamps its own output.
 const float MIN_TEMPERATURE_KELVIN = 1.0;
 
+// Universal gas constant, J/(mol*K).
+const float GAS_CONSTANT = 8.314462618;
+
 void main() {
     uint cell_index = gl_GlobalInvocationID.x;
     uint cell_count = width * height;
@@ -131,6 +134,15 @@ void main() {
             }
             extent *= max(catalyst_activity, 0.0);
         }
+        // Thermodynamic feasibility. Without this the extent depends only on the rate
+        // constant, so a reaction with strongly positive dG runs uphill at full speed.
+        // exp(-dG/RT) suppresses it exponentially rather than cutting it off, and is
+        // exactly 1.0 for the dG <= 0 case, leaving exergonic and thermoneutral rules
+        // untouched.
+        if (dG > 0.0) {
+            extent *= exp(-dG / (GAS_CONSTANT * local_temperature));
+        }
+
         extent = min(extent, c_a);
         if (has_second_reactant) {
             extent = min(extent, c_b);
